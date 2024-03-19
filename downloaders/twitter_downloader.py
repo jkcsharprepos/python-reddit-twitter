@@ -4,9 +4,9 @@ import json
 
 class TwitterDownloader:
     def __init__(self):
-        pass
+        self.twitter_collection = "reddit_downloader"
 
-    def get_posts(self, user_id):
+    def get_posts(self, user_id, logging):
         url = 'https://twitter.com/i/api/graphql/WwS-a6hAhqAAe-gItelmHA/UserTweets'
 
         variables = {
@@ -52,29 +52,43 @@ class TwitterDownloader:
         variables_encoded = json.dumps(variables)
         features_encoded = json.dumps(features)
 
-        response = httpx.get(
-            url,
-            params={'variables': variables_encoded, 'features': features_encoded},
-            headers=headers
-        )
+        try:
+            response = httpx.get(
+                url,
+                params={'variables': variables_encoded, 'features': features_encoded},
+                headers=headers
+            )
+            response_json = json.loads(response.text)
+        except:
+            logging.error("Error during fetch post")
+            return None
 
-        response_json = json.loads(response.text)
-        first_post = response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][0]["entry"]
-        rest_posts = response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][1]["entries"]
-        posts = [first_post] + rest_posts
-        screen_name = response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][0]["entry"]["content"]["itemContent"]["tweet_results"]["result"]["core"]["user_results"]["result"]["legacy"]["screen_name"]
+        try:
+            first_post = response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][0]["entry"]
+            rest_posts = response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][1][
+                "entries"]
+            posts = [first_post] + rest_posts
+            screen_name = \
+            response_json["data"]["user"]["result"]['timeline_v2']['timeline']['instructions'][0]["entry"]["content"][
+                "itemContent"]["tweet_results"]["result"]["core"]["user_results"]["result"]["legacy"]["screen_name"]
+        except:
+            logging.error("Error during prepare fetched response")
+            return None
+
         extracted_posts = []
 
         for post in posts:
-            extracted_post = self.extract_post(post, screen_name)
+            extracted_post = self.extract_post(post, screen_name, logging)
             if extracted_post is None:
                 continue
-
+            if not extracted_post["id"]:
+                logging.warning("Post doesnt have id. Cannot be prepared for publication")
+                continue
             extracted_posts.append(extracted_post)
 
         return extracted_posts
 
-    def extract_post(self, post, screen_name):
+    def extract_post(self, post, screen_name, logging):
         try:
             legacy = post.get("content").get('itemContent').get('tweet_results').get('result').get('legacy')
         except:
@@ -82,6 +96,7 @@ class TwitterDownloader:
                 legacy = post.get("content").get('items')[0].get('item').get('itemContent').get('tweet_results').get('result').get(
                 'legacy')
             except:
+                logging.warning("Cannot extract post. Cannot get legacy attribute")
                 return None
 
         post_id = legacy.get('id_str')
